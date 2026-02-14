@@ -12,9 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from dataclasses import dataclass
 import inspect
 from typing import Any, Callable, Dict, List, Optional, Union
 
+import PIL
+from click import prompt
+import numpy as np
 import torch
 from packaging import version
 from transformers import CLIPImageProcessor, CLIPTextModel, CLIPTokenizer
@@ -37,8 +41,8 @@ from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionS
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
-
-
+    
+    
 def rescale_noise_cfg(noise_cfg, noise_pred_text, guidance_rescale=0.0):
     """
     Rescale `noise_cfg` according to `guidance_rescale`. Based on findings of [Common Diffusion Noise Schedules and
@@ -521,10 +525,12 @@ class RectifiedFlowPipeline(DiffusionPipeline, TextualInversionLoaderMixin, Lora
         negative_prompt_embeds: Optional[torch.FloatTensor] = None,
         output_type: Optional[str] = "pil",
         return_dict: bool = True,
+        store_intermediate_latents: bool = False,
         callback: Optional[Callable[[int, int, torch.FloatTensor], None]] = None,
         callback_steps: int = 1,
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
         guidance_rescale: float = 0.0,
+        disable_safety_checker: bool = False,
     ):
         r"""
         The call function to the pipeline for generation.
@@ -565,6 +571,10 @@ class RectifiedFlowPipeline(DiffusionPipeline, TextualInversionLoaderMixin, Lora
                 not provided, `negative_prompt_embeds` are generated from the `negative_prompt` input argument.
             output_type (`str`, *optional*, defaults to `"pil"`):
                 The output format of the generated image. Choose between `PIL.Image` or `np.array`.
+            store_intermediate_latents (`bool`, *optional*, defaults to `False`):
+                Whether or not to store the intermediate latents after each step. This is useful for analyzing the
+                behavior of the model during inference and for research purposes. If set to `True`, the intermediate
+                latents can be accessed through the `intermediate_latents` attribute of the pipeline after inference.
             return_dict (`bool`, *optional*, defaults to `True`):
                 Whether or not to return a [`~pipelines.stable_diffusion.StableDiffusionPipelineOutput`] instead of a
                 plain tuple.
@@ -581,6 +591,8 @@ class RectifiedFlowPipeline(DiffusionPipeline, TextualInversionLoaderMixin, Lora
                 Guidance rescale factor from [Common Diffusion Noise Schedules and Sample Steps are
                 Flawed](https://arxiv.org/pdf/2305.08891.pdf). Guidance rescale factor should fix overexposure when
                 using zero terminal SNR.
+            disable_safety_checker (`bool`, *optional*):
+                Whether or not to disable the safety checker. See `safety_checker` for more details on the safety checker and the implications of disabling it.
 
         Examples:
 
@@ -639,6 +651,8 @@ class RectifiedFlowPipeline(DiffusionPipeline, TextualInversionLoaderMixin, Lora
 
         # 5. Prepare latent variables
         num_channels_latents = self.unet.config.in_channels
+        
+            
         latents = self.prepare_latents(
             batch_size * num_images_per_prompt,
             num_channels_latents,
@@ -649,7 +663,14 @@ class RectifiedFlowPipeline(DiffusionPipeline, TextualInversionLoaderMixin, Lora
             generator,
             latents,
         )
-
+        
+        if store_intermediate_latents:
+            initial_latents = latents.detach()
+            intermediate_latents = []
+            # just simply add each step to the list without looking into the latents
+            def add_latents_to_intermediate(step, timestep, latents):
+                intermediate_latents.append(latents.detach())
+            
         # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
         dt = 1.0 / num_inference_steps
@@ -670,19 +691,22 @@ class RectifiedFlowPipeline(DiffusionPipeline, TextualInversionLoaderMixin, Lora
                     v_pred = v_pred_neg + guidance_scale * (v_pred_text - v_pred_neg)
 
                 latents = latents + dt * v_pred 
-
+                if store_intermediate_latents:
+                    add_latents_to_intermediate(i, t, latents)
+                
                 # call the callback, if provided
                 if i == len(timesteps) - 1 or ((i + 1) % self.scheduler.order == 0):
                     progress_bar.update()
                     if callback is not None and i % callback_steps == 0:
                         step_idx = i // getattr(self.scheduler, "order", 1)
-                        callback(step_idx, t, latents)
-
-
+                        callback(step_idx, t, latents)            
 
         if not output_type == "latent":
             image = self.vae.decode(latents / self.vae.config.scaling_factor, return_dict=False)[0]
-            image, has_nsfw_concept = self.run_safety_checker(image, device, prompt_embeds.dtype)
+            if disable_safety_checker:
+                has_nsfw_concept = None
+            else:
+                image, has_nsfw_concept = self.run_safety_checker(image, device, prompt_embeds.dtype)
         else:
             image = latents
             has_nsfw_concept = None
@@ -700,4 +724,21 @@ class RectifiedFlowPipeline(DiffusionPipeline, TextualInversionLoaderMixin, Lora
         if not return_dict:
             return (image, has_nsfw_concept)
 
-        return StableDiffusionPipelineOutput(images=image, nsfw_content_detected=has_nsfw_concept)
+        return RectifiedFlowPipelineOutput(images=image,
+                                             nsfw_content_detected=has_nsfw_concept,
+                                             intermediate_latents=intermediate_latents if store_intermediate_latents else None,
+                                             initial_latents=initial_latents if store_intermediate_latents else None)
+    
+    @torch.no_grad()
+    def decode_latents(self, latents, disable_safety_checker=True):
+        # deprecation_message = "The decode_latents method is deprecated and will be removed in 1.0.0. Please use VaeImageProcessor.postprocess(...) instead"
+        # deprecate("decode_latents", "1.0.0", deprecation_message, standard_warn=False)
+
+        latents = 1 / self.vae.config.scaling_factor * latents
+        image = self.vae.decode(latents, return_dict=False)[0]
+        if disable_safety_checker:
+            has_nsfw_concept = None
+        else:
+            image, has_nsfw_concept = self.run_safety_checker(image, self._execution_device, latents.dtype)
+        image = self.image_processor.postprocess(image, output_type="pil")
+        return image, has_nsfw_concept
