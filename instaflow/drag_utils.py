@@ -1,5 +1,24 @@
-# Drag utilities for InstaFlow/RectifiedFlow
-# Adapted from DragDiffusion
+# *************************************************************************
+# Copyright (2023) Bytedance Inc.
+#
+# Copyright (2023) DragDiffusion Authors 
+#
+# Adapted from DragDiff by Yiming Chen, 2026.
+#
+# Licensed under the Apache License, Version 2.0 (the "License"); 
+# you may not use this file except in compliance with the License. 
+# You may obtain a copy of the License at 
+#
+#     http://www.apache.org/licenses/LICENSE-2.0 
+#
+# Unless required by applicable law or agreed to in writing, software 
+# distributed under the License is distributed on an "AS IS" BASIS, 
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. 
+# See the License for the specific language governing permissions and 
+# limitations under the License. 
+# *************************************************************************
+
+
 
 import copy
 import torch
@@ -92,6 +111,7 @@ def get_base_unet(unet):
         return unet.base_model.model
     return unet
 
+original_forward = None
 
 def override_unet_forward(unet):
     """
@@ -101,6 +121,9 @@ def override_unet_forward(unet):
     """
     # Get the actual UNet for accessing blocks
     base_unet = get_base_unet(unet)
+    global original_forward
+    if original_forward is None:
+        original_forward = base_unet.forward
 
     def forward(
         sample: torch.FloatTensor,
@@ -260,11 +283,14 @@ def override_unet_forward(unet):
 
     return forward
 
-
-# =====================================================================
-# Drag update function for RectifiedFlow
-# =====================================================================
-
+def restore_unet_forward(unet):
+    """Restore the original UNet forward method."""
+    base_unet = get_base_unet(unet)
+    global original_forward
+    if original_forward is not None:
+        base_unet.forward = original_forward
+        original_forward = None
+        
 def drag_rf_update(
     pipe,
     latent: torch.Tensor,

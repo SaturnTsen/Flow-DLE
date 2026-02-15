@@ -693,7 +693,12 @@ class RectifiedFlowPipeline(DiffusionPipeline, TextualInversionLoaderMixin, Lora
                 vec_t = torch.ones((latent_model_input.shape[0],), device=latents.device) * t 
 
                 v_pred = self.unet(latent_model_input, vec_t, encoder_hidden_states=prompt_embeds)
-
+                
+                if hasattr(v_pred, "sample"):
+                    v_pred = v_pred.sample
+                elif isinstance(v_pred, tuple):
+                    v_pred = v_pred[0]
+                
                 # perform guidance 
                 if do_classifier_free_guidance:
                     v_pred_neg, v_pred_text = v_pred.chunk(2)
