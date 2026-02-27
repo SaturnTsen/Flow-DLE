@@ -21,14 +21,14 @@ from dataclasses import dataclass
 
 @dataclass
 class BlendConfig:
-    blend_start_step: int = 5
-    blend_end_step: int = 30
-    optim_steps_per_inference: int = 2
-    lr: float = 0.02
-    lamfg: float = 0.001
-    lambg: float = 0.002
+    blend_start_step: int = 20
+    blend_end_step: int = 25
+    optim_steps_per_inference: int = 10
+    lr: float = 0.1
+    lamfg: float = 0.01
+    lambg: float = 0.001
 
-def get_callback_with_fg_features(
+def blend_with_fg_features(
     pipe,
     state_fg,
     state_bg_ref,  # Reference bg to preserve background features
