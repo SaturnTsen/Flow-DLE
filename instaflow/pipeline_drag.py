@@ -110,8 +110,8 @@ class RectifiedFlowStateMachine(RectifiedFlowPipeline):
     def prepare_state(
         self,
         prompt=None,
-        height=None,
-        width=None,
+        height=512,
+        width=512,
         num_inference_steps=50,
         guidance_scale=2.5,
         negative_prompt=None,
