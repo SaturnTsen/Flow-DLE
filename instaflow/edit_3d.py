@@ -20,7 +20,7 @@ import torch.nn.functional as F
 from dataclasses import dataclass
 
 @dataclass
-class EditConfig:
+class Edit3DConfig:
     blend_start_step: int = 20
     blend_end_step: int = 25
     optim_steps_per_inference: int = 10
@@ -28,12 +28,12 @@ class EditConfig:
     lamfg: float = 0.01
     lambg: float = 0.001
 
-def edit_with_T(
+def edit_3d(
     pipe,
     state_fg,
     state_bg_ref,  # Reference bg to preserve background features
     mask_tensor,
-    config: EditConfig
+    config: Edit3DConfig
 ):
     loss_history = {}
     
