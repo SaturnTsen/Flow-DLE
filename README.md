@@ -1,63 +1,134 @@
-# FlowDLE: Differentiable Latent Editing on Flow Models
+# 🌊 FlowDLE-Depth
 
-This repository explores differentiable latent editing on top of InstaFlow's Rectified Flow pipeline. The core idea is to guide background generation using foreground features while preserving background features outside the mask.
+### Depth-Aware Differentiable Latent Editing on Flow Models
 
-## Highlights
-- Feature-guided latent optimization at selected timesteps.
-- Dual loss: foreground feature alignment + background feature preservation.
-- Supports hard blending and gradient-guided variants for comparison.
+<p align="center">
 
-## Environment
-This project uses the InstaFlow codebase with a Stable Diffusion 1.5 rectified flow checkpoint.
+![Python](https://img.shields.io/badge/Python-3.11-blue)
+![PyTorch](https://img.shields.io/badge/PyTorch-CUDA-orange)
+![Model](https://img.shields.io/badge/Model-Rectified%20Flow-Green)
+![Model](https://img.shields.io/badge/Model-UniDepth3D-purple)
 
-Recommended Python: 3.11 with CUDA enabled PyTorch.
+</p>
 
-## Quick Start
-Open the notebook and run cells in order:
+![image](assets/6comp.png)
 
-1. Generate foreground with feature capture enabled.
-2. Generate background.
-3. Paint a mask for the target region.
-4. Run Method 1 (feature-guided optimization).
-5. Compare results across methods.
+## ✨ Overview
 
-Notebook:
-- transfer.ipynb
+**FlowDLE-Depth** introduces **Depth-Aware Latent Editing** for rectified flow models.
 
-## Drag (Notebook)
-This repo also includes a drag-style editing workflow in drag.ipynb. It demonstrates interactive point-based control for editing trajectories during inference.
+Instead of flat pixel blending, this method:
 
-Typical flow:
-1. Run the notebook setup and load the model.
-2. Provide source/target point pairs (or use the UI widget if available).
-3. Run the drag editing loop to update the latent trajectory.
+* 🧠 Incorporates monocular depth estimation
+* 🎯 Applies masked latent optimization
+* 🏗 Preserves 3D geometric structure
+* 🛡 Maintains background feature consistency
 
-Notebook:
-- drag.ipynb
+The editing happens **directly on the rectified flow latent trajectory**, enabling structure-consistent modifications.
 
-## Blend (Notebook)
+## 🔥 Key Features
 
-### Method 1: Feature-Guided Optimization
-The main method optimizes the latent at each denoising step within a window:
+* Depth-aware masked editing
+* Differentiable latent optimization during inference
+* Dual-loss design (foreground alignment + background preservation)
+* Geometry-consistent transformations
+* Multiple baseline comparisons
 
-- Foreground loss: match masked features to foreground features.
-- Background loss: preserve unmasked features to a reference background.
+## 🧩 Method Pipeline
 
-Reference background is obtained by cloning the background inference state and re-running with feature capture enabled.
+### 1️⃣ Depth Extraction
 
-### Notes
-- The mask is a 0-1 float map.
-- Feature losses are L1 over intermediate UNet features.
-- CFG batches are handled by selecting the positive branch.
+We compute:
 
-### Results
-Use the comparison cell in the notebook to visualize:
+* Original depth
+* Masked depth
+* Transformed masked depth (structure-aware projection)
 
-- Image-level blending
-- Method 1: Optimize (Adam)
-- Method 2: Direct Correction
-- Method 3: Hard Blend
-- Method 4: Gradient Guidance
+Depth acts as a geometric constraint during editing.
 
-## Acknowledgements
-Built on InstaFlow and diffusers. Thanks to the original authors of their excellent work.
+### 2️⃣ Masked Latent Optimization
+
+At selected flow timesteps:
+
+**Foreground Loss**
+
+* Feature alignment (masked region)
+* Optional depth alignment
+
+**Background Loss**
+
+* Preserve unmasked features
+* Prevent global drift
+
+Loss is computed on intermediate UNet features (L1).
+
+CFG batches use the conditional branch.
+
+### 3️⃣ Depth-Aware Constraint
+
+The depth map is:
+
+* Masked
+* Normalized
+* Optionally transformed to pseudo-3D coordinates
+
+This ensures edits follow object geometry instead of flat blending.
+
+
+## 🚀 Quick Start
+
+Install dependencies
+```
+pip install -r requirements.txt
+git clone https://github.com/lpiccinelli-eth/UniDepth
+cd UniDepth
+pip install -e .
+```
+
+Run the following notebooks:
+
+```
+drag.ipynb --- for dragging
+transfer.ipynb --- for transfer + blending
+rotate.ipynb --- for rotation
+```
+
+Workflow:
+
+1. Generate initial image with feature capture
+2. Paint mask
+3. Extract depth
+4. Run depth-aware optimization
+5. Compare with baselines
+
+## 🎯 Editing Variants
+
+| Method                       | Description                        |
+| ---------------------------- | ---------------------------------- |
+| **Depth-Aware Optimization** | Main method                        |
+| Feature-Guided Optimization  | Feature alignment only             |
+| Hard Blend                   | Mask-based blending                |
+
+## 🧪 Results
+
+The framework enables:
+
+* Geometry-consistent foreground edits
+* Reduced background artifacts
+* Stable latent trajectory optimization
+* Structured deformation
+
+## 📚 Acknowledgements
+
+Built on:
+- InstaFlow
+- UniDepth3D
+- ipywidgets
+
+We thank the authors of these projects for their foundational contributions.
+
+## 📄 License
+
+This project is licensed under the Apache License 2.0.
+
+See the LICENSE file for full details.
