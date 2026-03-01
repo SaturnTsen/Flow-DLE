@@ -1,26 +1,10 @@
-# *************************************************************************
-# Copyright (2026) Yiming Chen
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# *************************************************************************
-
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import ipywidgets as widgets
 from ipycanvas import Canvas
 from IPython.display import display
 import matplotlib.pyplot as plt
-from typing import Dict
+from typing import Dict, Optional
 from .calc_utils import (
     to_numpy_image,
     pred_unidepth,
@@ -326,6 +310,7 @@ class MaskedDepthTransformWidget:
         mask: np.ndarray,
         depth_preds: Dict[str, np.ndarray],
         resolution_level: int = 9,
+        init_transform: Optional[Dict[str, float]] = None,
     ):
         """
         img: PIL.Image (RGB)
@@ -341,10 +326,15 @@ class MaskedDepthTransformWidget:
         self.depth = depth_preds["depth"]
         self.intrinsics = depth_preds["intrinsics"]
 
-        self.transform = {
+        default_transform = {
             "rx": 0.0, "ry": 0.0, "rz": 0.0,
             "tx": 0.0, "ty": 0.0, "tz": 0.0,
         }
+
+        if init_transform is None:
+            self.transform = default_transform.copy()
+        else:
+            self.transform = {**default_transform, **init_transform}
 
         self._build_widgets()
         self._bind_callbacks()
@@ -353,11 +343,11 @@ class MaskedDepthTransformWidget:
     def _build_widgets(self):
         self.out = widgets.Output()
         self.rx = widgets.FloatSlider(
-            value=0.0, min=-20.0, max=20.0, step=1.0,
+            value=0.0, min=-180.0, max=180.0, step=1.0,
             description="Rot X", continuous_update=False
         )
         self.ry = widgets.FloatSlider(
-            value=0.0, min=-20.0, max=20.0, step=1.0,
+            value=0.0, min=-180.0, max=180.0, step=1.0,
             description="Rot Y", continuous_update=False
         )
         self.rz = widgets.FloatSlider(
@@ -377,7 +367,7 @@ class MaskedDepthTransformWidget:
             description="Trans Z", continuous_update=False
         )
         self.feather_slider = widgets.IntSlider(
-            value=5, min=0, max=20, step=1,
+            value=5, min=0, max=30, step=1,
             description="Feather px", continuous_update=False
         )
 
@@ -509,6 +499,12 @@ class MaskedDepthTransformWidget:
     
     def get_transformation(self):
         return self._get_T()
+    
+    def get_transformation_params(self):
+        return self.transform.copy()
+    
+    def get_mask(self):
+        return self.mask.copy()
 
     def show(self):
         ui = widgets.VBox([
