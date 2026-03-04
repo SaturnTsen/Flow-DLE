@@ -139,7 +139,8 @@ def clean_mask_by_depth(
     }
 
     mask_cc = np.isin(labels, list(keep)).astype(np.uint8)
-
+    
+    # feather
     if feather_pixels > 0:
         dist = cv2.distanceTransform(mask_cc, cv2.DIST_L2, 5)
         mask_cc = (dist >= feather_pixels)

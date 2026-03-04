@@ -341,29 +341,30 @@ class MaskedDepthTransformWidget:
         self._render()
 
     def _build_widgets(self):
+        t = self.transform
         self.out = widgets.Output()
         self.rx = widgets.FloatSlider(
-            value=0.0, min=-180.0, max=180.0, step=1.0,
+            value=t["rx"], min=-180.0, max=180.0, step=1.0,
             description="Rot X", continuous_update=False
         )
         self.ry = widgets.FloatSlider(
-            value=0.0, min=-180.0, max=180.0, step=1.0,
+            value=t["ry"], min=-180.0, max=180.0, step=1.0,
             description="Rot Y", continuous_update=False
         )
         self.rz = widgets.FloatSlider(
-            value=0.0, min=-180.0, max=180.0, step=1.0,
+            value=t["rz"], min=-180.0, max=180.0, step=1.0,
             description="Rot Z", continuous_update=False
         )
         self.tx = widgets.FloatSlider(
-            value=0.0, min=-10.0, max=10.0, step=0.01,
+            value=t["tx"], min=-10.0, max=10.0, step=0.01,
             description="Trans X", continuous_update=False
         )
         self.ty = widgets.FloatSlider(
-            value=0.0, min=-10.0, max=10.0, step=0.01,
+            value=t["ty"], min=-10.0, max=10.0, step=0.01,
             description="Trans Y", continuous_update=False
         )
         self.tz = widgets.FloatSlider(
-            value=0.0, min=-10.0, max=10.0, step=0.01,
+            value=t["tz"], min=-10.0, max=10.0, step=0.01,
             description="Trans Z", continuous_update=False
         )
         self.feather_slider = widgets.IntSlider(
@@ -436,33 +437,11 @@ class MaskedDepthTransformWidget:
             t["tx"], t["ty"], t["tz"],
         )
     def _render(self):
-        T = self._get_T()
-
-        depth_proj = transform_depth_map(
-            self.depth,
-            self.intrinsics,
-            T,
-            self.mask,
-        )
-
-        rgb = np.array(self.img)
-        rgb_proj = transform_rgb_map(
-            rgb,
-            self.depth,
-            self.intrinsics,
-            T,
-            self.mask,
-        )
-
-        depth_masked = np.zeros_like(self.depth)
-        depth_masked[self.mask] = self.depth[self.mask]
-
-        rgb_masked = rgb.copy()
-        rgb_masked[~self.mask] = 0
-
+        transformed_maps = self.get_transformed_maps()
+        
         vmin = np.nanmin(self.depth)
         vmax = np.nanmax(self.depth)
-
+        
         with self.out:
             self.out.clear_output(wait=True)
 
@@ -473,24 +452,24 @@ class MaskedDepthTransformWidget:
             axes[0,0].set_title("Original Depth")
             axes[0,0].axis("off")
 
-            axes[0,1].imshow(depth_masked, cmap="inferno", vmin=vmin, vmax=vmax)
+            axes[0,1].imshow(transformed_maps["masked_depth"], cmap="inferno", vmin=vmin, vmax=vmax)
             axes[0,1].set_title("Masked Depth")
             axes[0,1].axis("off")
 
-            im2 = axes[0,2].imshow(depth_proj, cmap="inferno", vmin=vmin, vmax=vmax)
+            axes[0,2].imshow(transformed_maps["proj_depth"], cmap="inferno", vmin=vmin, vmax=vmax)
             axes[0,2].set_title("Transformed Masked Depth")
             axes[0,2].axis("off")
 
             # ----- Row 2: RGB -----
-            axes[1,0].imshow(rgb)
+            axes[1,0].imshow(transformed_maps["img"])
             axes[1,0].set_title("Original Image")
             axes[1,0].axis("off")
 
-            axes[1,1].imshow(rgb_masked)
+            axes[1,1].imshow(transformed_maps["img_masked"])
             axes[1,1].set_title("Masked Image")
             axes[1,1].axis("off")
 
-            axes[1,2].imshow(rgb_proj)
+            axes[1,2].imshow(transformed_maps["img_proj"])
             axes[1,2].set_title("Transformed Masked Image")
             axes[1,2].axis("off")
 
@@ -505,6 +484,28 @@ class MaskedDepthTransformWidget:
     
     def get_mask(self):
         return self.mask.copy()
+
+    def get_transformed_maps(self):
+        T = self._get_T()
+        rgb = to_numpy_image(self.img)
+
+        depth_masked = np.zeros_like(self.depth)
+        depth_masked[self.mask] = self.depth[self.mask]
+        depth_proj = transform_depth_map(self.depth, self.intrinsics, T, self.mask)
+
+        rgb_masked = rgb.copy()
+        rgb_masked[~self.mask] = 0
+        rgb_proj = transform_rgb_map(rgb, self.depth, self.intrinsics, T, self.mask)
+
+        return {
+            "orig_depth": self.depth,
+            "masked_depth": depth_masked,
+            "proj_depth": depth_proj,
+            "img": rgb,
+            "img_masked": rgb_masked,
+            "img_proj": rgb_proj
+        }
+        
 
     def show(self):
         ui = widgets.VBox([

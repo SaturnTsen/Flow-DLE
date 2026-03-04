@@ -1,6 +1,6 @@
 {
     "python.analysis.extraPaths": [
-        "/Data/yiming.chen/InstaFlow/UniDepth"
+        "/Data/yiming.chen/FlowDLE/UniDepth"
     ],
     "python-envs.defaultEnvManager": "ms-python.python:conda",
     "python-envs.defaultPackageManager": "ms-python.python:conda"

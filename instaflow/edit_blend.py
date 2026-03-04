@@ -14,7 +14,6 @@
 # limitations under the License. 
 # *************************************************************************
 
-# Method 1: Optimize latent to reduce feature loss (using provided features_bg)
 import torch
 import torch.nn.functional as F
 from dataclasses import dataclass

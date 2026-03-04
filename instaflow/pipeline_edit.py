@@ -15,25 +15,12 @@
 # *************************************************************************
 
 
-from dataclasses import dataclass, replace, field
-from typing import List, Optional, Union, Callable
-import copy
+from dataclasses import dataclass, replace
+from typing import List, Optional, Callable
 import torch
-import torch.nn.functional as F
-from instaflow.pipeline_rf import RectifiedFlowPipeline
-from instaflow.drag_utils import override_unet_forward
-from diffusers.pipelines.stable_diffusion.pipeline_output import StableDiffusionPipelineOutput
-
-# Import drag utilities
-from instaflow.drag_utils import (
-    #  override_unet_forward, 
-    drag_rf_update, 
-    forward_unet_features,
-    point_tracking,
-    check_handle_reach_target,
-    DragOutput,
-    DragOptimStep,
-)
+from .pipeline_rf import RectifiedFlowPipeline
+from .drag_utils import override_unet_forward
+import copy
 
 @dataclass
 class InferenceState:
@@ -56,9 +43,7 @@ class InferenceState:
     
     @torch.no_grad()
     def clone(self):
-        return replace(self, 
-                       latent=self.latent.clone(),
-                       intermediate_latents=list(self.intermediate_latents) if self.intermediate_latents else [])
+        return copy.deepcopy(self)
     
     def replace_latent(self, new_latent: torch.Tensor, step: Optional[int] = None):
         """
@@ -71,7 +56,7 @@ class InferenceState:
         Returns:
             self for chaining
         """
-        self.latent = new_latent.clone() if new_latent.requires_grad else new_latent.detach().clone()
+        self.latent = new_latent.detach().clone()
         if step is not None:
             self.i = step
         return self
@@ -134,7 +119,7 @@ class RectifiedFlowStateMachine(RectifiedFlowPipeline):
             batch_size = 1
         elif isinstance(prompt, list):
             batch_size = len(prompt)
-        else:
+        elif prompt_embeds is not None:
             batch_size = prompt_embeds.shape[0]
 
         # encode prompt
@@ -189,6 +174,7 @@ class RectifiedFlowStateMachine(RectifiedFlowPipeline):
         self,
         state: InferenceState,
         until: Optional[int] = None,
+        do_not_store_features = False,
         callback: Optional[Callable[[int, float, float, torch.FloatTensor, list, torch.FloatTensor], torch.FloatTensor]] = None,
     ):
         """Run inference from current state until specified step."""
@@ -199,10 +185,14 @@ class RectifiedFlowStateMachine(RectifiedFlowPipeline):
         while state.i < (len(state.timesteps) if until is None else until):
             features = []
             name_map = {m: n for n, m in self.unet.named_modules()}
-            def hook(mod, inp, out): features.append((name_map.get(mod, "<unnamed>"), out))
-
-            handles =  [self.unet.mid_block.register_forward_hook(hook)]
-            handles += [b.register_forward_hook(hook) for b in self.unet.up_blocks]
+            
+            def hook(mod, inp, out):
+                if not do_not_store_features:
+                    features.append((name_map.get(mod, "<unnamed>"), out))
+            
+            if not do_not_store_features:
+                handles =  [self.unet.mid_block.register_forward_hook(hook)]
+                handles += [b.register_forward_hook(hook) for b in self.unet.up_blocks]
 
             features.clear()
 
@@ -243,13 +233,14 @@ class RectifiedFlowStateMachine(RectifiedFlowPipeline):
 
             state.latent = next_latent.detach()
 
-            if state.intermediate_latents is not None:
+            if not do_not_store_features and state.intermediate_latents is not None:
                 state.intermediate_latents[-1]["features"] = [(name, feat.detach().clone()) for name, feat in features]
                 state.intermediate_latents[-1]["v_pred"] = v_pred.detach().clone()
 
             # Remove hooks
-            for h in handles:
-                h.remove()
+            if not do_not_store_features:
+                for h in handles:
+                    h.remove()
 
             state.i += 1
         
