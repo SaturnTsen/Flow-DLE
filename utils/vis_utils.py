@@ -32,7 +32,7 @@ def overlay_points_and_mask(image, points, mask):
     for idx, point in enumerate(points):
         color = (255, 0, 0) if idx % 2 == 0 else (
             0, 0, 255)  # Red for handle, Blue for target
-        cv2.circle(image, (point[0], point[1]),
+        cv2.circle(image, (int(point[0]), int(point[1])),
                    radius=10, color=color, thickness=-1)
 
     return image
