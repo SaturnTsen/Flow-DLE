@@ -1,3 +1,6 @@
 __pycache__
 *.safetensors
 vis_depth
+drag_bench_data
+drag_bench_results
+*.log
