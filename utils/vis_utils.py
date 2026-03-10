@@ -29,10 +29,15 @@ def overlay_points_and_mask(image, points, mask):
     image = np.where(red_mask > 0, red_mask, image)
 
     # Overlay points
+    
     for idx, point in enumerate(points):
+        
+        x = int(round(point[0]))
+        y = int(round(point[1]))
+
         color = (255, 0, 0) if idx % 2 == 0 else (
             0, 0, 255)  # Red for handle, Blue for target
-        cv2.circle(image, (point[0], point[1]),
+        cv2.circle(image, (x, y),
                    radius=10, color=color, thickness=-1)
 
     return image

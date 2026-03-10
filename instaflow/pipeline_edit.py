@@ -25,7 +25,7 @@ import copy
 @dataclass
 class InferenceState:
     initial_latent: torch.FloatTensor
-    latent: torch.FloatTensor
+    latent: torch.FloatTensor | torch.Tensor
     timesteps: list
     i: int
     dt: float
@@ -244,4 +244,91 @@ class RectifiedFlowStateMachine(RectifiedFlowPipeline):
 
             state.i += 1
         
+        return state
+
+    @torch.no_grad()
+    def invert_from_state(
+        self,
+        state: InferenceState,
+        until: int = 0,
+        do_not_store_features: bool = False,
+        callback: Optional[Callable[[int, float, float, torch.FloatTensor, list, torch.FloatTensor], torch.FloatTensor]] = None,
+    ):
+        """Run RF inversion from current state index down to `until` (inclusive-exclusive).
+
+        This integrates the same ODE backward with Euler steps:
+            x <- x - dt * v(x, t)
+
+        Notes:
+        - `state.i` is treated as the next forward step index.
+        - If `state.i == len(state.timesteps)`, latent is treated as terminal sample.
+        - Inversion iterates step indices `state.i-1, ..., until`.
+        """
+        if until < 0 or until > len(state.timesteps):
+            raise ValueError(f"`until` must be in [0, {len(state.timesteps)}], got {until}.")
+
+        for p in self.unet.parameters():
+            p.requires_grad_(False)
+
+        while state.i > until:
+            features = []
+            name_map = {m: n for n, m in self.unet.named_modules()}
+
+            def hook(mod, inp, out):
+                if not do_not_store_features:
+                    features.append((name_map.get(mod, "<unnamed>"), out))
+
+            if not do_not_store_features:
+                handles = [self.unet.mid_block.register_forward_hook(hook)]
+                handles += [b.register_forward_hook(hook) for b in self.unet.up_blocks]
+
+            features.clear()
+
+            state.latent = state.latent.detach().requires_grad_(True)
+
+            step_idx = state.i - 1
+            t = state.timesteps[step_idx]
+
+            if state.intermediate_latents is not None:
+                state.intermediate_latents.append({
+                    "step": step_idx,
+                    "timestep": t,
+                    "latent": state.latent.detach().clone(),
+                })
+
+            latent_model_input = torch.cat([state.latent] * 2) if state.do_cfg else state.latent
+
+            vec_t = torch.ones((latent_model_input.shape[0],), device=state.device) * t
+            v_pred = self.unet(
+                latent_model_input,
+                vec_t,
+                encoder_hidden_states=state.prompt_embeds,
+            )
+
+            if isinstance(v_pred, tuple):
+                v_pred = v_pred[0]
+            elif hasattr(v_pred, "sample"):
+                v_pred = v_pred.sample
+
+            if state.do_cfg:
+                v_pred_neg, v_pred_text = v_pred.chunk(2)
+                v_pred = v_pred_neg + state.guidance_scale * (v_pred_text - v_pred_neg)
+
+            if callback is None:
+                prev_latent = state.latent - state.dt * v_pred
+            else:
+                prev_latent = callback(step_idx, t, state.dt, state.latent, features, v_pred)
+
+            state.latent = prev_latent.detach()
+
+            if not do_not_store_features and state.intermediate_latents is not None:
+                state.intermediate_latents[-1]["features"] = [(name, feat.detach().clone()) for name, feat in features]
+                state.intermediate_latents[-1]["v_pred"] = v_pred.detach().clone()
+
+            if not do_not_store_features:
+                for h in handles:
+                    h.remove()
+
+            state.i -= 1
+
         return state
